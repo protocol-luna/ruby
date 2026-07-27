@@ -32,31 +32,22 @@ function saveCheckpoint(cp: Checkpoint) {
 	writeFileSync(CHECKPOINT_PATH, JSON.stringify(cp, null, 2));
 }
 
-let _rateLimitRemaining = 50;
-let _rateLimitReset = 0;
-
 async function discordFetch(
 	token: string,
 	path: string,
+	retries = 3,
 ): Promise<{ data: unknown; headers: Headers }> {
-	while (_rateLimitRemaining === 0 && Date.now() < _rateLimitReset * 1000) {
-		const wait = _rateLimitReset * 1000 - Date.now() + 100;
-		console.log(`[rate] waiting ${wait}ms for reset`);
-		await new Promise((r) => setTimeout(r, Math.min(wait, 5000)));
-	}
+	await new Promise((r) => setTimeout(r, 220));
 
 	const resp = await fetch(`https://discord.com/api/v10${path}`, {
 		headers: { Authorization: `Bot ${token}` },
 	});
 
-	_rateLimitRemaining = Number(resp.headers.get("X-RateLimit-Remaining") ?? "1");
-	_rateLimitReset = Number(resp.headers.get("X-RateLimit-Reset") ?? "0");
-
-	if (resp.status === 429) {
-		const retryAfter = Number(resp.headers.get("Retry-After") ?? "5");
-		console.log(`[rate] 429, retrying after ${retryAfter}s`);
-		await new Promise((r) => setTimeout(r, retryAfter * 1000 + 100));
-		return discordFetch(token, path);
+	if (resp.status === 429 && retries > 0) {
+		const retryAfter = Number(resp.headers.get("Retry-After") ?? "2");
+		console.log(`  [rate] 429, retrying after ${retryAfter}s`);
+		await new Promise((r) => setTimeout(r, retryAfter * 1000 + 500));
+		return discordFetch(token, path, retries - 1);
 	}
 
 	if (!resp.ok) {
@@ -163,8 +154,6 @@ async function backfillChannel(
 			saveCheckpoint(checkpoint);
 			console.log(`  [${channelName}] ${total} messages...`);
 		}
-
-		await new Promise((r) => setTimeout(r, 50));
 	}
 
 	console.log(`  [${channelName}] done: ${total} messages`);
