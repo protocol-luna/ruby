@@ -5,11 +5,11 @@
     "moduleResolution": "bundler",
     "strict": true,
     "esModuleInterop": true,
-    "rootDir": "src",
     "outDir": "dist",
     "declaration": true,
     "sourceMap": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src", "tools"]
 }

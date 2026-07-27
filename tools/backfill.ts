@@ -12,9 +12,8 @@
  * Resumable: checkpoints last message ID per channel in backfill-checkpoint.json
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { load } from "js-yaml";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const RUBY_URL = process.env.RUBY_URL ?? "http://127.0.0.1:3127";
 const CHECKPOINT_PATH = "backfill-checkpoint.json";
