@@ -67,10 +67,11 @@ def main():
         if (i + 1) % REPORT_EVERY == 0:
             elapsed = time.time() - start
             rate = trained / elapsed if elapsed > 0 else 0
-            print(
-                f"  rows: {i+1:,} | trained: {trained:,} | "
-                f"skipped: {skipped:,} | rate: {rate:.0f} msg/s"
-            )
+                print(
+                    f"  rows: {i+1:,} | trained: {trained:,} | "
+                    f"skipped: {skipped:,} | rate: {rate:.0f} msg/s",
+                    flush=True,
+                )
 
     if batch:
         send_batch(batch)
