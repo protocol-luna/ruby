@@ -18,11 +18,13 @@ export type TrainOptions = {
 export class MarkovChain {
 	private db: SqlJsDatabase | null = null;
 	private savePath = "chain.db";
+	private order = 2;
 	private trainedSinceSave = 0;
 	private stmtInsertStarter: any = null;
 	private stmtUpsertTransition: any = null;
 
-	async init(savePath?: string) {
+	async init(savePath?: string, order?: number) {
+		this.order = order ?? 2;
 		this.savePath = savePath ?? "chain.db";
 		const SQL = await initSqlJs();
 
@@ -82,7 +84,7 @@ export class MarkovChain {
 	train(opts: TrainOptions) {
 		if (opts.isDM) return;
 		const words = this.tokenize(opts.text);
-		if (words.length < 3) return;
+		if (words.length < this.order + 1) return;
 		this.insertWords(words, opts.channelId ?? "");
 	}
 
@@ -92,7 +94,7 @@ export class MarkovChain {
 			for (const opts of optsList) {
 				if (opts.isDM) continue;
 				const words = this.tokenize(opts.text);
-				if (words.length < 3) continue;
+				if (words.length < this.order + 1) continue;
 				this.insertWords(words, opts.channelId ?? "");
 			}
 			this.db!.exec("COMMIT");
@@ -110,20 +112,20 @@ export class MarkovChain {
 	}
 
 	private insertWords(words: string[], channelId: string) {
-		const prefix = words.slice(0, 2).join("\x00");
+		const prefix = words.slice(0, this.order).join("\x00");
 
 		this.stmtInsertStarter.bind([prefix, channelId]);
 		this.stmtInsertStarter.step();
 		this.stmtInsertStarter.reset();
 
-		for (let i = 0; i < words.length - 2; i++) {
-			const key = words.slice(i, i + 2).join("\x00");
-			const next = words[i + 2];
+		for (let i = 0; i < words.length - this.order; i++) {
+			const key = words.slice(i, i + this.order).join("\x00");
+			const next = words[i + this.order];
 			this.stmtUpsertTransition.bind([key, next, channelId]);
 			this.stmtUpsertTransition.step();
 			this.stmtUpsertTransition.reset();
 		}
-		this.trainedSinceSave += words.length - 2;
+		this.trainedSinceSave += words.length - this.order;
 	}
 
 	generate(opts?: GenerateOptions): string {
@@ -137,11 +139,11 @@ export class MarkovChain {
 		const result: string[] = [...parts];
 
 		for (let i = 0; i < maxLength; i++) {
-			const next = this.sampleNext(parts.slice(-2).join("\x00"), channelId);
+			const next = this.sampleNext(parts.slice(-this.order).join("\x00"), channelId);
 			if (!next) break;
 			result.push(next);
 			parts.push(next);
-			if (parts.length > 2) parts.shift();
+			if (parts.length > this.order) parts.shift();
 		}
 
 		return result.join(" ");

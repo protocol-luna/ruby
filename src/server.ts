@@ -14,7 +14,7 @@ export class RubyServer {
 	}
 
 	async start() {
-		await this.chain.init(this.config.db_path);
+		await this.chain.init(this.config.db_path, this.config.order);
 		this.server.listen(this.config.port, this.config.host, () => {
 			console.log(`[Ruby] listening on ${this.config.host}:${this.config.port}`);
 		});
