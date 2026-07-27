@@ -34,12 +34,27 @@ function pickPrefix(seed) {
 }
 
 function generate(seed) {
-  const prefix = pickPrefix(seed);
+  let prefix = seed ? pickPrefix(seed) : pickPrefix();
+
   if (!prefix) {
-    console.error("No starter found" + (seed ? ` for seed "${seed}"` : ""));
+    if (seed) {
+      prefix = pickPrefix();
+      if (!prefix) {
+        console.error("No starter found");
+        process.exit(1);
+      }
+      const rest = prefix.split(SEP).join(" ");
+      return seed + " " + markovChain(prefix);
+    }
+    console.error("No starter found");
     process.exit(1);
   }
-  const parts = prefix.split(SEP);
+
+  return markovChain(prefix);
+}
+
+function markovChain(startPrefix) {
+  const parts = startPrefix.split(SEP);
   for (let i = 0; i < MAX_LEN; i++) {
     const cur = parts.slice(-ORDER).join(SEP);
     const rows = stmtSuffixes.all(cur, "");
