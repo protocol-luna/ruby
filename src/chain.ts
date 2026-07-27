@@ -18,6 +18,7 @@ export type TrainOptions = {
 export class MarkovChain {
 	private db: SqlJsDatabase | null = null;
 	private savePath = "chain.db";
+	private trainedSinceSave = 0;
 
 	async init(savePath?: string) {
 		this.savePath = savePath ?? "chain.db";
@@ -60,6 +61,8 @@ export class MarkovChain {
 		);
 	}
 
+	start() {}
+
 	stop() {
 		this.save();
 	}
@@ -87,6 +90,13 @@ export class MarkovChain {
 		}
 	}
 
+	maybeSave() {
+		if (this.trainedSinceSave > 500000) {
+			this.save();
+			this.trainedSinceSave = 0;
+		}
+	}
+
 	private insertWords(words: string[], channelId: string) {
 		const prefix = words.slice(0, 2).join("\x00");
 
@@ -106,6 +116,7 @@ export class MarkovChain {
 				[key, next, channelId],
 			);
 		}
+		this.trainedSinceSave += words.length - 2;
 	}
 
 	generate(opts?: GenerateOptions): string {
@@ -214,6 +225,7 @@ export class MarkovChain {
 	save() {
 		if (!this.db) return;
 		try {
+			this.db.exec("VACUUM");
 			const data = this.db.export();
 			const tmpPath = this.savePath + ".tmp";
 			writeFileSync(tmpPath, Buffer.from(data));

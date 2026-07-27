@@ -90,7 +90,7 @@ export class RubyServer {
 			}));
 
 		this.chain.trainMany(batch);
-		this.chain.save();
+		this.chain.maybeSave();
 		this.json(res, 200, { trained: batch.length });
 	}
 

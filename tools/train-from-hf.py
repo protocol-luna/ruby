@@ -1,113 +1,122 @@
 #!/usr/bin/env python3
 """
-Train Ruby on the HuggingFace Discord-Dialogues dataset.
+Train Ruby from pre-extracted messages file.
 
-Reads the local parquet file, extracts individual messages from ChatML,
-and sends them to Ruby's /train-batch in batches.
+Reads hf-data/messages.txt.gz (one message per line) and sends to Ruby
+in batches. Saves a checkpoint so restarting skips already-trained messages.
 
 Usage:
-    hf download --repo-type dataset --local-dir ./hf-data mookiezi/Discord-Dialogues
-    pip install pyarrow requests
-    python tools/train-from-hf.py
+    python tools/prepare.py          # first: extract messages from parquet
+    python tools/train-from-hf.py    # train Ruby
 """
 
-import re
+import gzip
+import os
 import sys
 import time
+
 import requests
 
 RUBY_URL = "http://127.0.0.1:3127"
-BATCH_SIZE = 200
-REPORT_EVERY = 50000
-
-CHATML_RE = re.compile(r"<\|im_start\|>(user|assistant|system)\s(.*?)<\|im_end\|>", re.DOTALL)
-
-
-def extract_messages(text: str) -> list[str]:
-    """Extract individual messages from ChatML format."""
-    msgs = []
-    for match in CHATML_RE.finditer(text):
-        role = match.group(1).strip()
-        content = match.group(2).strip()
-        if role != "user" and role != "assistant":
-            continue
-        if not content:
-            continue
-        msgs.append(content)
-    return msgs
+MESSAGES_PATH = "hf-data/messages.txt.gz"
+CHECKPOINT_PATH = "hf-data/train-checkpoint.txt"
+BATCH_SIZE = 5000
 
 
-PARQUET_PATH = "hf-data/data/train.parquet"
+def load_checkpoint() -> int:
+    if os.path.exists(CHECKPOINT_PATH):
+        with open(CHECKPOINT_PATH) as f:
+            return int(f.read().strip())
+    return 0
 
 
-def main():
-    import pyarrow.parquet as pq
+def save_checkpoint(line: int):
+    tmp = CHECKPOINT_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(str(line))
+    os.replace(tmp, CHECKPOINT_PATH)
 
-    print(f"Reading {PARQUET_PATH}...")
-    table = pq.read_table(PARQUET_PATH, columns=["text"])
-    total = table.num_rows
-    print(f"Dataset has {total:,} rows ({len(table):,} after loading)")
 
+def main(total: int):
+    if not os.path.exists(MESSAGES_PATH):
+        print(f"Run 'python tools/prepare.py' first to create {MESSAGES_PATH}")
+        sys.exit(1)
+
+    skip = load_checkpoint()
+    if skip > 0:
+        print(f"Resuming from line {skip:,} / {total:,} ({skip/total*100:.1f}%)")
+
+    session = requests.Session()
     batch = []
     trained = 0
-    skipped = 0
+    line_num = 0
     start = time.time()
 
-    for i in range(total):
-        text = table["text"][i].as_py()
-        msgs = extract_messages(text)
-
-        for msg in msgs:
-            if len(msg) < 5:
-                skipped += 1
+    with gzip.open(MESSAGES_PATH, "rt", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            line_num += 1
+            if not line or line_num <= skip:
                 continue
-            batch.append({"text": msg, "platform": "discord"})
 
-        if len(batch) >= BATCH_SIZE:
-            send_batch(batch)
-            trained += len(batch)
-            batch = []
+            batch.append({"text": line, "platform": "discord"})
 
-        if (i + 1) % REPORT_EVERY == 0:
-            elapsed = time.time() - start
-            rate = trained / elapsed if elapsed > 0 else 0
-            print(
-                f"  rows: {i+1:,} | trained: {trained:,} | "
-                f"skipped: {skipped:,} | rate: {rate:.0f} msg/s",
-                flush=True,
-            )
-            if trained > 0 and trained % 2000000 == 0:
-                print(f"  checkpoint: 2M messages trained", flush=True)
+            if len(batch) >= BATCH_SIZE:
+                ok = send_batch(session, batch)
+                if not ok:
+                    sys.exit(1)
+                trained += len(batch)
+                save_checkpoint(line_num)
+                batch = []
+
+                elapsed = time.time() - start
+                rate = trained / elapsed if elapsed > 0 else 0
+                remaining = total - skip - trained
+                eta = remaining / rate if rate > 0 else 0
+                print(
+                    f"  {trained:,} / {total:,} msgs | "
+                    f"{rate:.0f} msg/s | ETA: {eta/60:.0f} min",
+                    flush=True,
+                )
 
     if batch:
-        send_batch(batch)
-        trained += len(batch)
+        ok = send_batch(session, batch)
+        if ok:
+            trained += len(batch)
+            save_checkpoint(line_num)
 
     elapsed = time.time() - start
     print(f"\nDone! {trained:,} messages trained in {elapsed:.0f}s ({trained/elapsed:.0f} msg/s)")
 
 
-def send_batch(batch: list[dict]):
-    for attempt in range(10):
+def send_batch(session: requests.Session, batch: list[dict]) -> bool:
+    for attempt in range(20):
         try:
-            resp = requests.post(
+            resp = session.post(
                 f"{RUBY_URL}/train-batch",
                 json={"messages": batch},
-                timeout=60,
+                timeout=120,
             )
             if resp.status_code == 200:
-                return
-            print(f"  [error] {resp.status_code}: {resp.text[:100]}")
+                return True
+            print(f"  [error] {resp.status_code}: {resp.text[:100]}", flush=True)
         except requests.ConnectionError:
-            print(f"  [error] Ruby not reachable, waiting 10s...")
-            time.sleep(10)
+            print(f"  [error] Ruby not reachable, reconnecting...", flush=True)
+            session.close()
+            session = requests.Session()
+            time.sleep(2)
             continue
         except Exception as e:
-            print(f"  [error] {e}")
+            print(f"  [error] {e}", flush=True)
         time.sleep(2 ** min(attempt, 5))
-    print(f"  [fatal] giving up after 10 attempts")
-    sys.exit(1)
+    print(f"  [fatal] giving up after 20 attempts", flush=True)
+    return False
 
 
 if __name__ == "__main__":
-    main()
+    total = 0
+    with gzip.open(MESSAGES_PATH, "rt") as f:
+        for _ in f:
+            total += 1
+    print(f"Total messages in file: {total:,}")
+    main(total)
