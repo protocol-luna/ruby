@@ -21,9 +21,9 @@
 Ruby generates spontaneous, context-free messages by recombining real messages from Discord and Matrix channels — no LLM inference needed. It's an order-2 Markov chain stored in SQLite.
 
 ```mermaid
-graph LR
-    Emerald["Emerald<br/>Brain"] -- "trains on all messages" --> Ruby["Ruby<br/><strong>Markov Chain</strong>"]
-    Emerald -- "HTTP :3127 /generate" --> Ruby
+flowchart LR
+    Emerald["Emerald (Brain)"] -- "trains on all messages" --> Ruby["Ruby (Markov Chain)"]
+    Emerald -- ":3127 /generate" --> Ruby
 ```
 
 ## How It Works
