@@ -5,7 +5,11 @@
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --packages=external --minify --outfile=self-cli.cjs",
     "start": "node self-cli.cjs",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "download-chain": "node tools/download-chain.cjs",
+    "download-chain:order2": "node tools/download-chain.cjs 2",
+    "download-chain:order3": "node tools/download-chain.cjs 3",
+    "download-chain:order4": "node tools/download-chain.cjs 4"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

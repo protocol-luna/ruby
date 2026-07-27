@@ -15,10 +15,15 @@
     <a href="https://github.com/protocol-luna">
       <img src="https://img.shields.io/badge/part%20of-Luna%20Protocol-9370DB?style=flat-square" alt="Luna Protocol">
     </a>
+    <a href="https://huggingface.co/fox3000foxy/ruby-chain">
+      <img src="https://img.shields.io/badge/🤗%20HuggingFace-ruby--chain-FFD21E?style=flat-square" alt="HuggingFace">
+    </a>
   </p>
 </p>
 
-Ruby generates spontaneous, context-free messages by recombining real messages from Discord and Matrix channels — no LLM inference needed. It's an order-2 Markov chain stored in SQLite.
+Ruby generates spontaneous, context-free messages by recombining real messages from Discord and Matrix channels — no LLM inference needed. It's an order-4 Markov chain stored in SQLite.
+
+Pre-trained chains (orders 2, 3, 4) are available on [HuggingFace](https://huggingface.co/fox3000foxy/ruby-chain), trained on 16.9M real Discord messages.
 
 ```mermaid
 flowchart LR
@@ -29,15 +34,15 @@ flowchart LR
 ## How It Works
 
 1. Every message that flows through Emerald is forwarded to Ruby's `/train` endpoint (fire-and-forget)
-2. Ruby tokenizes and builds an order-2 Markov chain in SQLite: each pair of words maps to possible next words
-3. Messages are tagged with `channel_id` — the chain can be filtered by source channel
+2. Ruby tokenizes and builds an order-4 Markov chain in SQLite: each 4-word prefix maps to possible next words
+3. Messages are tagged with `channel_id` — the chain can be filtered by source channel or topic
 4. When Emerald decides to be spontaneous (or triggers a `random`/`spontaneous` response), it calls Ruby's `/generate`
 5. Ruby samples the chain with weighted random selection and returns a sentence
 6. Emerald applies the same behavior pipeline as any response (delay, hesitation, burst, typos)
 
 ## Technical Overview
 
-Ruby is **~400 lines of TypeScript** across 4 source files. It uses **sql.js** (SQLite compiled to WebAssembly) for persistence and Node.js built-in `http` module for the server — no external HTTP framework.
+Ruby is **~400 lines of TypeScript** across 4 source files. It uses **better-sqlite3** (native SQLite binding) for persistence and Node.js built-in `http` module for the server — no external HTTP framework.
 
 ### Source Map
 
@@ -54,18 +59,18 @@ Ruby is **~400 lines of TypeScript** across 4 source files. It uses **sql.js** (
 **Database schema:**
 
 ```sql
--- Order-2 prefix→suffix mapping
+-- Prefix→suffix mapping (order is configurable, default 4)
 CREATE TABLE transitions (
-  prefix TEXT,       -- two words joined by \x00, e.g. "hello\x00world"
+  prefix TEXT,       -- N words joined by \x00, e.g. "hello\x00world\x00how\x00are"
   suffix TEXT,       -- the next word
   count INTEGER,     -- frequency (incremented on repeat)
-  channel_id TEXT,   -- source channel ("" for cross-channel aggregate)
+  channel_id TEXT,   -- source channel or topic tag
   PRIMARY KEY (prefix, suffix, channel_id)
 );
 
 -- Valid sentence starters
 CREATE TABLE starters (
-  prefix TEXT,       -- first two-word pair of a message
+  prefix TEXT,       -- first N words of a message
   channel_id TEXT,
   PRIMARY KEY (prefix, channel_id)
 );
@@ -75,21 +80,21 @@ CREATE INDEX idx_trans_prefix ON transitions(prefix);
 
 **Training (`train()`):**
 1. Tokenizes text: strips URLs, Discord mentions (`<@!?\d+>`), custom emoji, non-word characters. Splits on whitespace.
-2. Requires ≥3 words
-3. First pair → inserted into `starters` (INSERT OR IGNORE)
-4. Each sliding window of 2 words → next word inserted/summed into `transitions` (upsert pattern)
+2. Requires ≥order+1 words
+3. First `order` words → inserted into `starters` (INSERT OR IGNORE)
+4. Each sliding window of `order` words → next word inserted/summed into `transitions` (upsert pattern)
 
 **Generation (`generate()`):**
-1. Pick a starting prefix: random from `starters`, or filtered by `seed` (SQL `LIKE` match on lowercased seed + `%`)
-2. Start with the first two words
+1. Pick a starting prefix: random from `starters`, or filtered by `seed` (LIKE match on lowercased seed + `%`)
+2. Start with the first `order` words
 3. Loop up to `maxLength` (default 30):
-   - Query `transitions` for all suffixes matching current 2-word prefix
+   - Query `transitions` for all suffixes matching current `order`-word prefix
    - **Weighted random selection:** sum all counts, roll in `[0, total)`, subtract each count until roll hits zero
    - If no transition found, stop
    - Append suffix to result, slide window
 4. Return joined words
 
-**Persistence:** The entire SQLite database is kept in memory (sql.js is WASM-based, no native bindings). Every `save_interval_ms` (default 60s), `db.export()` writes a complete binary snapshot to disk via `writeFileSync`. On stop, a final save flushes all data.
+**Persistence:** better-sqlite3 writes directly to disk (WAL mode). No periodic save needed — every `train()` call is immediately durable. A `VACUUM` runs every 500K transitions to reclaim space.
 
 ### API Endpoints
 
@@ -141,11 +146,32 @@ Response: `200 { "status": "ok" }`
 ```yaml
 port: 3127
 host: "127.0.0.1"
-order: 2          # Markov chain order
+order: 4          # Markov chain order (2, 3, or 4)
 max_length: 30    # Max generated words
 skip_dm: true     # Skip DM messages in training
 save_interval_ms: 60000  # SQLite persist interval
 db_path: "chain.db"
+```
+
+## Pre-trained Chains
+
+Pre-trained Markov chains are available on [HuggingFace](https://huggingface.co/fox3000foxy/ruby-chain):
+
+| File | Order | Transitions | Starters | Size | Quality |
+|------|-------|-------------|----------|------|---------|
+| `chain-order2.db` | 2 | 18.9M | 615K | 1.1 GB | Creative but less coherent |
+| `chain-order3.db` | 3 | 6.8M | 788K | 626 MB | Good balance |
+| `chain-order4.db` | 4 | 6.9M | 1.1M | 747 MB | Most coherent (recommended) |
+
+Training data: 16.9M human messages from [mookiezi/Discord-Dialogues](https://huggingface.co/datasets/mookiezi/Discord-Dialogues).
+
+```bash
+# Download latest (order 4)
+npx tsx tools/download-chain.cjs
+
+# Or pick a specific order
+npm run download-chain:order3
+npm run download-chain:order4
 ```
 
 ### Integration with Emerald

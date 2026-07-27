@@ -5,8 +5,9 @@
 port: 3127
 host: "127.0.0.1"
 
-# Ordre de la chaîne de Markov (2 = bigrammes)
-order: 2
+# Ordre de la chaîne de Markov (2, 3, ou 4)
+# Des chaînes pré-entraînées disponibles sur https://huggingface.co/fox3000foxy/ruby-chain
+order: 4
 
 # Longueur max du texte généré (en mots)
 max_length: 30

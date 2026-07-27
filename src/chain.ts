@@ -177,21 +177,19 @@ export class MarkovChain {
 	}
 
 	private pickPrefix(seed?: string, channelId?: string): string | null {
-		let rows: { prefix: string }[];
 		if (seed) {
-			const pattern = seed.toLowerCase() + "%";
-			if (channelId) {
-				rows = this.stmtPickSeedChannel!.all(pattern, channelId);
-			} else {
-				rows = this.stmtPickSeed!.all(pattern);
-			}
-		} else {
-			if (channelId) {
-				rows = this.stmtPickChannel!.all(channelId);
-			} else {
-				rows = this.stmtPickAll!.all();
-			}
+			const target = seed.toLowerCase().split(/\s+/).join("\x00");
+			const firstWord = target.split("\x00")[0];
+			const rows = channelId
+				? this.stmtPickSeedChannel!.all(firstWord + "%", channelId)
+				: this.stmtPickSeed!.all(firstWord + "%");
+			const matched = rows.filter((r) => r.prefix.toLowerCase().startsWith(target));
+			if (matched.length === 0) return null;
+			return matched[Math.floor(Math.random() * matched.length)].prefix;
 		}
+		const rows = channelId
+			? this.stmtPickChannel!.all(channelId)
+			: this.stmtPickAll!.all();
 		if (rows.length === 0) return null;
 		return rows[Math.floor(Math.random() * rows.length)].prefix;
 	}
