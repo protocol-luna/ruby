@@ -5,3 +5,4 @@ config.yml
 chain.db
 hf_cache/
 bun.lock
+hf-data/

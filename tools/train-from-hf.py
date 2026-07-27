@@ -2,11 +2,12 @@
 """
 Train Ruby on the HuggingFace Discord-Dialogues dataset.
 
-Downloads the parquet dataset, extracts individual messages from ChatML,
+Reads the local parquet file, extracts individual messages from ChatML,
 and sends them to Ruby's /train-batch in batches.
 
 Usage:
-    pip install datasets requests
+    hf download --repo-type dataset --local-dir ./hf-data mookiezi/Discord-Dialogues
+    pip install pyarrow requests
     python tools/train-from-hf.py
 """
 
@@ -36,21 +37,24 @@ def extract_messages(text: str) -> list[str]:
     return msgs
 
 
-def main():
-    print("Loading dataset...")
-    from datasets import load_dataset
+PARQUET_PATH = "hf-data/data/train.parquet"
 
-    ds = load_dataset("mookiezi/Discord-Dialogues", split="train", streaming=True)
-    total = len(ds) if hasattr(ds, "__len__") else "?"
-    print(f"Dataset has {total} rows")
+
+def main():
+    import pyarrow.parquet as pq
+
+    print(f"Reading {PARQUET_PATH}...")
+    table = pq.read_table(PARQUET_PATH, columns=["text"])
+    total = table.num_rows
+    print(f"Dataset has {total:,} rows ({len(table):,} after loading)")
 
     batch = []
     trained = 0
     skipped = 0
     start = time.time()
 
-    for i, row in enumerate(ds):
-        text = row["text"]
+    for i in range(total):
+        text = table["text"][i].as_py()
         msgs = extract_messages(text)
 
         for msg in msgs:

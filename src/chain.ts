@@ -18,7 +18,6 @@ export type TrainOptions = {
 export class MarkovChain {
 	private db: SqlJsDatabase | null = null;
 	private savePath = "chain.db";
-	private saveTimer: ReturnType<typeof setInterval> | null = null;
 
 	async init(savePath?: string) {
 		this.savePath = savePath ?? "chain.db";
@@ -61,12 +60,7 @@ export class MarkovChain {
 		);
 	}
 
-	start(saveIntervalMs = 60000) {
-		this.saveTimer = setInterval(() => this.save(), saveIntervalMs);
-	}
-
 	stop() {
-		if (this.saveTimer) clearInterval(this.saveTimer);
 		this.save();
 	}
 
@@ -217,7 +211,7 @@ export class MarkovChain {
 			.filter(Boolean);
 	}
 
-	private save() {
+	save() {
 		if (!this.db) return;
 		try {
 			const data = this.db.export();
