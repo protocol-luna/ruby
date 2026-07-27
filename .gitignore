@@ -3,3 +3,4 @@ dist/
 self-cli.cjs
 config.yml
 chain.db
+backfill-checkpoint.json
