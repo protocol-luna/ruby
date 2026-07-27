@@ -1,0 +1,5 @@
+node_modules/
+dist/
+self-cli.cjs
+config.yml
+chain.json

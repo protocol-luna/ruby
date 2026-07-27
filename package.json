@@ -1,0 +1,20 @@
+{
+  "name": "ruby",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --packages=external --minify --outfile=self-cli.cjs",
+    "start": "node self-cli.cjs",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "js-yaml": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.9.3",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.19.0",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,21 @@
+# Configuration Ruby
+# Chaîne de Markov universelle pour messages spontanés
+# Reçoit les messages d'Emerald en HTTP et génère du texte
+
+port: 3127
+host: "127.0.0.1"
+
+# Ordre de la chaîne de Markov (2 = bigrammes)
+order: 2
+
+# Longueur max du texte généré (en mots)
+max_length: 30
+
+# Exclure les messages privés de l'entraînement
+skip_dm: true
+
+# Intervalle de sauvegarde de la chaîne (ms)
+save_interval_ms: 60000
+
+# Chemin de la sauvegarde
+chain_path: "chain.json"
