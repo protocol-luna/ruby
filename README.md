@@ -56,6 +56,9 @@ Ruby is **~400 lines of TypeScript** across 4 source files. It uses **better-sql
 | `tools/train-merge.cjs` | 54 | Merge worker DBs via ATTACH + SUM |
 | `tools/prepare.py` | 117 | Parallel ChatML extraction from HF dataset |
 | `tools/download-chain.cjs` | 85 | Download pre-trained chain from HuggingFace |
+| `tools/generate.cjs` | 63 | CLI generator with seed support + fallback |
+| `tools/trace.cjs` | 49 | Trace forward path of a generated sentence |
+| `tools/reverse.cjs` | 39 | Reverse lookup: find prefixes that produce a word |
 | `tools/bench.cjs` | 123 | Direct benchmark (no HTTP overhead) |
 
 ### Markov Chain Implementation (`src/chain.ts`, 225 lines)
@@ -202,6 +205,37 @@ node tools/train-multi.js
 ```
 
 Downloads and processes `mookiezi/Discord-Dialogues` dataset directly with better-sqlite3 — no HTTP overhead.
+
+## Command-line Tools
+
+```bash
+# Generate a random sentence
+node tools/generate.cjs
+
+# Generate with a seed
+node tools/generate.cjs "how are you"
+
+# Trace how a generated sentence was built step by step
+node tools/trace.cjs <sentence>
+
+# Reverse lookup: find which 4-word prefixes produce a given word
+node tools/reverse.cjs <word>
+
+# Benchmark training + generation throughput
+node tools/bench.cjs
+```
+
+### `generate.cjs`
+
+Generates a sentence from the command line. Optional seed: if the seed matches a known starter, it's used; otherwise it's prepended to a random sentence.
+
+### `trace.cjs`
+
+Shows each step of a generated sentence — for each word, what prefix generated it, the chosen suffix, and all other available options with their counts. Useful for understanding why the chain made a particular choice.
+
+### `reverse.cjs`
+
+Given a suffix word, scans the chain to find all prefixes (ORDER words) that produce it in the training data, sorted by frequency. The inverse of the normal generation direction.
 
 ## Running
 
