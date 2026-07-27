@@ -170,7 +170,7 @@ function runWorker() {
 		 DO UPDATE SET count = count + 1`,
 	);
 
-	const order = 3;
+	const order = 4;
 	const SEP = "\x00";
 	let batch = [];
 
