@@ -70,32 +70,44 @@ export class MarkovChain {
 		if (opts.isDM) return;
 		const words = this.tokenize(opts.text);
 		if (words.length < 3) return;
+		this.insertWords(words, opts.channelId ?? "");
+	}
 
-		const channelId = opts.channelId ?? "";
+	trainMany(optsList: TrainOptions[]) {
+		this.db!.exec("BEGIN");
+		try {
+			for (const opts of optsList) {
+				if (opts.isDM) continue;
+				const words = this.tokenize(opts.text);
+				if (words.length < 3) continue;
+				this.insertWords(words, opts.channelId ?? "");
+			}
+			this.db!.exec("COMMIT");
+		} catch (err) {
+			this.db!.exec("ROLLBACK");
+			throw err;
+		}
+	}
 
-		const stmt = this.db!.prepare(`
-			INSERT INTO transitions (prefix, suffix, count, channel_id)
-			VALUES (?, ?, 1, ?)
-			ON CONFLICT(prefix, suffix, channel_id)
-			DO UPDATE SET count = count + 1
-		`);
-
-		const starterStmt = this.db!.prepare(`
-			INSERT OR IGNORE INTO starters (prefix, channel_id)
-			VALUES (?, ?)
-		`);
-
+	private insertWords(words: string[], channelId: string) {
 		const prefix = words.slice(0, 2).join("\x00");
-		starterStmt.run([prefix, channelId]);
+
+		this.db!.run(
+			"INSERT OR IGNORE INTO starters (prefix, channel_id) VALUES (?, ?)",
+			[prefix, channelId],
+		);
 
 		for (let i = 0; i < words.length - 2; i++) {
 			const key = words.slice(i, i + 2).join("\x00");
 			const next = words[i + 2];
-			stmt.run([key, next, channelId]);
+			this.db!.run(
+				`INSERT INTO transitions (prefix, suffix, count, channel_id)
+				 VALUES (?, ?, 1, ?)
+				 ON CONFLICT(prefix, suffix, channel_id)
+				 DO UPDATE SET count = count + 1`,
+				[key, next, channelId],
+			);
 		}
-
-		stmt.free();
-		starterStmt.free();
 	}
 
 	generate(opts?: GenerateOptions): string {

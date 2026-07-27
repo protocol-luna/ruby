@@ -33,6 +33,8 @@ export class RubyServer {
 
 			if (url.pathname === "/train" && method === "POST") {
 				await this.handleTrain(req, res);
+			} else if (url.pathname === "/train-batch" && method === "POST") {
+				await this.handleTrainBatch(req, res);
 			} else if (url.pathname === "/generate" && method === "POST") {
 				await this.handleGenerate(req, res);
 			} else if (url.pathname === "/channels" && method === "GET") {
@@ -67,6 +69,29 @@ export class RubyServer {
 		});
 
 		this.json(res, 200, { trained: true });
+	}
+
+	private async handleTrainBatch(req: IncomingMessage, res: ServerResponse) {
+		const body = await this.readBody(req);
+		const data = JSON.parse(body);
+		const messages = data.messages;
+
+		if (!Array.isArray(messages) || messages.length === 0) {
+			return this.json(res, 400, { error: "messages array required" });
+		}
+
+		const batch = messages
+			.filter((m: Record<string, unknown>) => typeof m.text === "string" && (m.text as string).trim())
+			.map((m: Record<string, unknown>) => ({
+				text: m.text as string,
+				isDM: (m as { isDM?: boolean }).isDM ?? false,
+				channelId: ((m as { channel_id?: string }).channel_id ?? "") as string,
+				userId: ((m as { user_id?: string }).user_id ?? "") as string,
+				platform: ((m as { platform?: string }).platform ?? "") as string,
+			}));
+
+		this.chain.trainMany(batch);
+		this.json(res, 200, { trained: batch.length });
 	}
 
 	private async handleGenerate(req: IncomingMessage, res: ServerResponse) {
