@@ -8,7 +8,7 @@ export type RubyConfig = {
 	max_length: number;
 	skip_dm: boolean;
 	save_interval_ms: number;
-	chain_path: string;
+	db_path: string;
 };
 
 const DEFAULT_CONFIG: RubyConfig = {
@@ -18,7 +18,7 @@ const DEFAULT_CONFIG: RubyConfig = {
 	max_length: 30,
 	skip_dm: true,
 	save_interval_ms: 60000,
-	chain_path: "chain.json",
+	db_path: "chain.db",
 };
 
 export function loadConfig(path?: string): RubyConfig {

@@ -1,6 +1,6 @@
 # Configuration Ruby
 # Chaîne de Markov universelle pour messages spontanés
-# Reçoit les messages d'Emerald en HTTP et génère du texte
+# Stockage SQLite avec métadonnées (salon, utilisateur, plateforme)
 
 port: 3127
 host: "127.0.0.1"
@@ -14,8 +14,8 @@ max_length: 30
 # Exclure les messages privés de l'entraînement
 skip_dm: true
 
-# Intervalle de sauvegarde de la chaîne (ms)
+# Intervalle de sauvegarde de la BD (ms)
 save_interval_ms: 60000
 
-# Chemin de la sauvegarde
-chain_path: "chain.json"
+# Chemin de la base SQLite
+db_path: "chain.db"

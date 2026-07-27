@@ -9,7 +9,10 @@ const configPath = existsSync(join(process.cwd(), "config.yml"))
 const config = loadConfig(configPath);
 
 const server = new RubyServer(config);
-server.start();
+server.start().catch((err) => {
+	console.error("[Ruby] failed to start:", err);
+	process.exit(1);
+});
 
 process.on("SIGINT", () => {
 	console.log("[Ruby] shutting down...");

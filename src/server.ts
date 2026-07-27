@@ -9,12 +9,13 @@ export class RubyServer {
 
 	constructor(config: RubyConfig) {
 		this.config = config;
-		this.chain = new MarkovChain(config.order, config.chain_path);
+		this.chain = new MarkovChain();
 		this.server = createServer((req, res) => this.handle(req, res));
 	}
 
-	start() {
-		this.chain.start();
+	async start() {
+		await this.chain.init(this.config.db_path);
+		this.chain.start(this.config.save_interval_ms);
 		this.server.listen(this.config.port, this.config.host, () => {
 			console.log(`[Ruby] listening on ${this.config.host}:${this.config.port}`);
 		});
@@ -23,10 +24,6 @@ export class RubyServer {
 	stop() {
 		this.chain.stop();
 		this.server.close();
-	}
-
-	getChain() {
-		return this.chain;
 	}
 
 	private async handle(req: IncomingMessage, res: ServerResponse) {
@@ -38,6 +35,8 @@ export class RubyServer {
 				await this.handleTrain(req, res);
 			} else if (url.pathname === "/generate" && method === "POST") {
 				await this.handleGenerate(req, res);
+			} else if (url.pathname === "/channels" && method === "GET") {
+				this.handleChannels(res);
 			} else if (url.pathname === "/stats" && method === "GET") {
 				this.handleStats(res);
 			} else if (url.pathname === "/health" && method === "GET") {
@@ -54,18 +53,19 @@ export class RubyServer {
 	private async handleTrain(req: IncomingMessage, res: ServerResponse) {
 		const body = await this.readBody(req);
 		const data = JSON.parse(body);
-		const text = data.text;
-		const isDM = data.isDM ?? false;
 
-		if (typeof text !== "string" || !text.trim()) {
+		if (typeof data.text !== "string" || !data.text.trim()) {
 			return this.json(res, 400, { error: "text required" });
 		}
 
-		if (isDM) {
-			return this.json(res, 200, { trained: false, reason: "dm_skipped" });
-		}
+		this.chain.train({
+			text: data.text,
+			isDM: data.isDM ?? false,
+			channelId: data.channel_id ?? "",
+			userId: data.user_id ?? "",
+			platform: data.platform ?? "",
+		});
 
-		this.chain.train(text);
 		this.json(res, 200, { trained: true });
 	}
 
@@ -76,9 +76,14 @@ export class RubyServer {
 		const text = this.chain.generate({
 			seed: data.seed || undefined,
 			maxLength: data.max_length || 30,
+			channelId: data.channel_id || undefined,
 		});
 
 		this.json(res, 200, { text });
+	}
+
+	private handleChannels(res: ServerResponse) {
+		this.json(res, 200, { channels: this.chain.getChannels() });
 	}
 
 	private handleStats(res: ServerResponse) {
