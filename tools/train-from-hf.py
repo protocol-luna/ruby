@@ -16,7 +16,7 @@ import time
 import requests
 
 RUBY_URL = "http://127.0.0.1:3127"
-BATCH_SIZE = 500
+BATCH_SIZE = 200
 REPORT_EVERY = 50000
 
 CHATML_RE = re.compile(r"<\|im_start\|>(user|assistant|system)\s(.*?)<\|im_end\|>", re.DOTALL)
@@ -67,11 +67,13 @@ def main():
         if (i + 1) % REPORT_EVERY == 0:
             elapsed = time.time() - start
             rate = trained / elapsed if elapsed > 0 else 0
-                print(
-                    f"  rows: {i+1:,} | trained: {trained:,} | "
-                    f"skipped: {skipped:,} | rate: {rate:.0f} msg/s",
-                    flush=True,
-                )
+            print(
+                f"  rows: {i+1:,} | trained: {trained:,} | "
+                f"skipped: {skipped:,} | rate: {rate:.0f} msg/s",
+                flush=True,
+            )
+            if trained > 0 and trained % 2000000 == 0:
+                print(f"  checkpoint: 2M messages trained", flush=True)
 
     if batch:
         send_batch(batch)
@@ -82,22 +84,25 @@ def main():
 
 
 def send_batch(batch: list[dict]):
-    for attempt in range(3):
+    for attempt in range(10):
         try:
             resp = requests.post(
                 f"{RUBY_URL}/train-batch",
                 json={"messages": batch},
-                timeout=30,
+                timeout=60,
             )
             if resp.status_code == 200:
                 return
             print(f"  [error] {resp.status_code}: {resp.text[:100]}")
         except requests.ConnectionError:
-            print(f"  [error] Ruby not reachable at {RUBY_URL}")
-            sys.exit(1)
+            print(f"  [error] Ruby not reachable, waiting 10s...")
+            time.sleep(10)
+            continue
         except Exception as e:
             print(f"  [error] {e}")
-        time.sleep(2 ** attempt)
+        time.sleep(2 ** min(attempt, 5))
+    print(f"  [fatal] giving up after 10 attempts")
+    sys.exit(1)
 
 
 if __name__ == "__main__":

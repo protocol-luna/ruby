@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
 
 export type GenerateOptions = {
@@ -23,6 +23,10 @@ export class MarkovChain {
 	async init(savePath?: string) {
 		this.savePath = savePath ?? "chain.db";
 		const SQL = await initSqlJs();
+
+		if (existsSync(this.savePath + ".tmp")) {
+			renameSync(this.savePath + ".tmp", this.savePath);
+		}
 
 		if (existsSync(this.savePath)) {
 			const buffer = readFileSync(this.savePath);
@@ -217,7 +221,9 @@ export class MarkovChain {
 		if (!this.db) return;
 		try {
 			const data = this.db.export();
-			writeFileSync(this.savePath, Buffer.from(data));
+			const tmpPath = this.savePath + ".tmp";
+			writeFileSync(tmpPath, Buffer.from(data));
+			renameSync(tmpPath, this.savePath);
 		} catch (err) {
 			console.error("[Ruby] save failed:", err);
 		}
