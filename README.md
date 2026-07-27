@@ -50,9 +50,13 @@ Ruby is **~400 lines of TypeScript** across 4 source files. It uses **better-sql
 |------|-------|------|
 | `src/index.ts` | 27 | Entry point, signal handlers |
 | `src/config.ts` | 39 | YAML config loader |
-| `src/chain.ts` | 225 | Core Markov chain + SQLite |
+| `src/chain.ts` | 224 | Core Markov chain + SQLite |
 | `src/server.ts` | 131 | HTTP server (6 endpoints) |
-| `tools/train-from-hf.py` | 104 | Bulk train from HuggingFace dataset |
+| `tools/train-multi.js` | 214 | Multi-worker bulk trainer (direct, no HTTP) |
+| `tools/train-merge.cjs` | 54 | Merge worker DBs via ATTACH + SUM |
+| `tools/prepare.py` | 117 | Parallel ChatML extraction from HF dataset |
+| `tools/download-chain.cjs` | 85 | Download pre-trained chain from HuggingFace |
+| `tools/bench.cjs` | 123 | Direct benchmark (no HTTP overhead) |
 
 ### Markov Chain Implementation (`src/chain.ts`, 225 lines)
 
@@ -149,7 +153,6 @@ host: "127.0.0.1"
 order: 4          # Markov chain order (2, 3, or 4)
 max_length: 30    # Max generated words
 skip_dm: true     # Skip DM messages in training
-save_interval_ms: 60000  # SQLite persist interval
 db_path: "chain.db"
 ```
 
@@ -170,6 +173,7 @@ Training data: 16.9M human messages from [mookiezi/Discord-Dialogues](https://hu
 npm run download-chain
 
 # Or pick a specific order
+npm run download-chain:order2
 npm run download-chain:order3
 npm run download-chain:order4
 ```
@@ -189,11 +193,15 @@ This gives the bot occasional "ambient" messages at near-zero latency compared t
 ### Bulk Training from HuggingFace
 
 ```bash
-pip install datasets requests
-python tools/train-from-hf.py
+# 1. Extract messages (4 workers, parallel)
+pip install datasets
+python tools/prepare.py
+
+# 2. Train multi-worker (4 workers, ~300K msgs/s)
+node tools/train-multi.js
 ```
 
-Downloads and processes `mookiezi/Discord-Dialogues` dataset, batching 500 messages per request via `/train-batch`.
+Downloads and processes `mookiezi/Discord-Dialogues` dataset directly with better-sqlite3 — no HTTP overhead.
 
 ## Running
 
