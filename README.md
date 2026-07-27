@@ -167,12 +167,14 @@ Training data: 16.9M human messages from [mookiezi/Discord-Dialogues](https://hu
 
 ```bash
 # Download latest (order 4)
-npx tsx tools/download-chain.cjs
+npm run download-chain
 
 # Or pick a specific order
 npm run download-chain:order3
 npm run download-chain:order4
 ```
+
+Uses `hf download` if available, falls back to HTTPS download with progress bar.
 
 ### Integration with Emerald
 
