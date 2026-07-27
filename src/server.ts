@@ -13,15 +13,15 @@ export class RubyServer {
 		this.server = createServer((req, res) => this.handle(req, res));
 	}
 
-	async start() {
-		await this.chain.init(this.config.db_path, this.config.order);
+	start() {
+		this.chain.init(this.config.db_path, this.config.order);
 		this.server.listen(this.config.port, this.config.host, () => {
 			console.log(`[Ruby] listening on ${this.config.host}:${this.config.port}`);
 		});
 	}
 
 	stop() {
-		this.chain.stop();
+		this.chain.close();
 		this.server.close();
 	}
 
@@ -90,7 +90,7 @@ export class RubyServer {
 			}));
 
 		this.chain.trainMany(batch);
-		this.chain.maybeSave();
+		this.chain.maybeVacuum();
 		this.json(res, 200, { trained: batch.length });
 	}
 

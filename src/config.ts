@@ -14,7 +14,7 @@ export type RubyConfig = {
 const DEFAULT_CONFIG: RubyConfig = {
 	port: 3127,
 	host: "127.0.0.1",
-	order: 2,
+	order: 3,
 	max_length: 30,
 	skip_dm: true,
 	save_interval_ms: 60000,

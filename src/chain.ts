@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
-import initSqlJs, { type Database as SqlJsDatabase } from "sql.js";
+import { existsSync, renameSync } from "node:fs";
+import Database from "better-sqlite3";
 
 export type GenerateOptions = {
 	seed?: string;
@@ -16,30 +16,31 @@ export type TrainOptions = {
 };
 
 export class MarkovChain {
-	private db: SqlJsDatabase | null = null;
+	private db: Database.Database | null = null;
 	private savePath = "chain.db";
 	private order = 2;
 	private trainedSinceSave = 0;
-	private stmtInsertStarter: any = null;
-	private stmtUpsertTransition: any = null;
+	private stmtInsertStarter: Database.Statement<[string, string]> | null = null;
+	private stmtUpsertTransition: Database.Statement<[string, string, string]> | null = null;
+	private stmtPickAll: Database.Statement<[], { prefix: string }> | null = null;
+	private stmtPickChannel: Database.Statement<[string], { prefix: string }> | null = null;
+	private stmtPickSeed: Database.Statement<[string], { prefix: string }> | null = null;
+	private stmtPickSeedChannel: Database.Statement<[string, string], { prefix: string }> | null = null;
+	private stmtSampleAll: Database.Statement<[string], { suffix: string; count: number }> | null = null;
+	private stmtSampleChannel: Database.Statement<[string, string], { suffix: string; count: number }> | null = null;
 
-	async init(savePath?: string, order?: number) {
+	init(savePath?: string, order?: number) {
 		this.order = order ?? 2;
 		this.savePath = savePath ?? "chain.db";
-		const SQL = await initSqlJs();
 
 		if (existsSync(this.savePath + ".tmp")) {
 			renameSync(this.savePath + ".tmp", this.savePath);
 		}
 
-		if (existsSync(this.savePath)) {
-			const buffer = readFileSync(this.savePath);
-			this.db = new SQL.Database(buffer);
-		} else {
-			this.db = new SQL.Database();
-		}
+		this.db = new Database(this.savePath);
+		this.db.pragma("journal_mode = WAL");
 
-		this.db.run(`
+		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS transitions (
 				prefix TEXT NOT NULL,
 				suffix TEXT NOT NULL,
@@ -48,37 +49,55 @@ export class MarkovChain {
 				PRIMARY KEY (prefix, suffix, channel_id)
 			)
 		`);
-		this.db.run(`
+		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS starters (
 				prefix TEXT NOT NULL,
 				channel_id TEXT NOT NULL DEFAULT '',
 				PRIMARY KEY (prefix, channel_id)
 			)
 		`);
-		this.db.run(`
+		this.db.exec(`
 			CREATE INDEX IF NOT EXISTS idx_trans_prefix ON transitions(prefix)
 		`);
 
 		this.stmtInsertStarter = this.db.prepare(
 			"INSERT OR IGNORE INTO starters (prefix, channel_id) VALUES (?, ?)",
-		);
+		) as Database.Statement<[string, string]>;
 		this.stmtUpsertTransition = this.db.prepare(
 			`INSERT INTO transitions (prefix, suffix, count, channel_id)
 			 VALUES (?, ?, 1, ?)
 			 ON CONFLICT(prefix, suffix, channel_id)
 			 DO UPDATE SET count = count + 1`,
-		);
+		) as Database.Statement<[string, string, string]>;
+
+		this.stmtPickAll = this.db.prepare(
+			"SELECT prefix FROM starters",
+		) as Database.Statement<[], { prefix: string }>;
+		this.stmtPickChannel = this.db.prepare(
+			"SELECT prefix FROM starters WHERE channel_id = ?",
+		) as Database.Statement<[string], { prefix: string }>;
+		this.stmtPickSeed = this.db.prepare(
+			"SELECT prefix FROM starters WHERE prefix LIKE ?",
+		) as Database.Statement<[string], { prefix: string }>;
+		this.stmtPickSeedChannel = this.db.prepare(
+			"SELECT prefix FROM starters WHERE prefix LIKE ? AND channel_id = ?",
+		) as Database.Statement<[string, string], { prefix: string }>;
+
+		this.stmtSampleAll = this.db.prepare(
+			"SELECT suffix, SUM(count) as count FROM transitions WHERE prefix = ? GROUP BY suffix",
+		) as Database.Statement<[string], { suffix: string; count: number }>;
+		this.stmtSampleChannel = this.db.prepare(
+			"SELECT suffix, count FROM transitions WHERE prefix = ? AND channel_id = ?",
+		) as Database.Statement<[string, string], { suffix: string; count: number }>;
 
 		const stats = this.getStats();
 		console.log(
-			`[Ruby] loaded chain: ${stats.transitions} transitions, ${stats.starts} starters`,
+			`[Ruby] loaded chain: ${stats.transitions} transitions, ${stats.starts} starters (order ${this.order})`,
 		);
 	}
 
-	start() {}
-
-	stop() {
-		this.save();
+	close() {
+		this.db?.close();
 	}
 
 	train(opts: TrainOptions) {
@@ -89,24 +108,20 @@ export class MarkovChain {
 	}
 
 	trainMany(optsList: TrainOptions[]) {
-		this.db!.exec("BEGIN");
-		try {
-			for (const opts of optsList) {
+		const insertBatch = this.db!.transaction((items: TrainOptions[]) => {
+			for (const opts of items) {
 				if (opts.isDM) continue;
 				const words = this.tokenize(opts.text);
 				if (words.length < this.order + 1) continue;
 				this.insertWords(words, opts.channelId ?? "");
 			}
-			this.db!.exec("COMMIT");
-		} catch (err) {
-			this.db!.exec("ROLLBACK");
-			throw err;
-		}
+		});
+		insertBatch(optsList);
 	}
 
-	maybeSave() {
+	maybeVacuum() {
 		if (this.trainedSinceSave > 500000) {
-			this.save();
+			this.db!.exec("VACUUM");
 			this.trainedSinceSave = 0;
 		}
 	}
@@ -114,16 +129,12 @@ export class MarkovChain {
 	private insertWords(words: string[], channelId: string) {
 		const prefix = words.slice(0, this.order).join("\x00");
 
-		this.stmtInsertStarter.bind([prefix, channelId]);
-		this.stmtInsertStarter.step();
-		this.stmtInsertStarter.reset();
+		this.stmtInsertStarter!.run(prefix, channelId);
 
 		for (let i = 0; i < words.length - this.order; i++) {
 			const key = words.slice(i, i + this.order).join("\x00");
 			const next = words[i + this.order];
-			this.stmtUpsertTransition.bind([key, next, channelId]);
-			this.stmtUpsertTransition.step();
-			this.stmtUpsertTransition.reset();
+			this.stmtUpsertTransition!.run(key, next, channelId);
 		}
 		this.trainedSinceSave += words.length - this.order;
 	}
@@ -150,75 +161,57 @@ export class MarkovChain {
 	}
 
 	getStats() {
-		const tRow = this.db!.exec("SELECT COUNT(*) as c FROM transitions");
-		const sRow = this.db!.exec("SELECT COUNT(*) as c FROM starters");
+		const tRow = this.db!.prepare("SELECT COUNT(*) as c FROM transitions").get() as { c: number };
+		const sRow = this.db!.prepare("SELECT COUNT(*) as c FROM starters").get() as { c: number };
 		return {
-			transitions: (tRow[0]?.values[0]?.[0] as number) ?? 0,
-			starts: (sRow[0]?.values[0]?.[0] as number) ?? 0,
+			transitions: tRow?.c ?? 0,
+			starts: sRow?.c ?? 0,
 		};
 	}
 
 	getChannels(): string[] {
-		const rows = this.db!.exec(
+		const rows = this.db!.prepare(
 			"SELECT DISTINCT channel_id FROM transitions WHERE channel_id != '' ORDER BY channel_id",
-		);
-		return (rows[0]?.values.map((r) => r[0] as string) ?? []).filter(Boolean);
+		).all() as { channel_id: string }[];
+		return rows.map((r) => r.channel_id).filter(Boolean);
 	}
 
 	private pickPrefix(seed?: string, channelId?: string): string | null {
-		let rows: unknown[][];
+		let rows: { prefix: string }[];
 		if (seed) {
 			const pattern = seed.toLowerCase() + "%";
 			if (channelId) {
-				rows =
-					this.db!.exec("SELECT prefix FROM starters WHERE prefix LIKE ? AND channel_id = ?", [
-						pattern,
-						channelId,
-					])[0]?.values ?? [];
+				rows = this.stmtPickSeedChannel!.all(pattern, channelId);
 			} else {
-				rows =
-					this.db!.exec("SELECT prefix FROM starters WHERE prefix LIKE ?", [pattern])[0]
-						?.values ?? [];
+				rows = this.stmtPickSeed!.all(pattern);
 			}
 		} else {
 			if (channelId) {
-				rows =
-					this.db!.exec("SELECT prefix FROM starters WHERE channel_id = ?", [channelId])[0]
-						?.values ?? [];
+				rows = this.stmtPickChannel!.all(channelId);
 			} else {
-				rows =
-					this.db!.exec("SELECT prefix FROM starters")[0]?.values ?? [];
+				rows = this.stmtPickAll!.all();
 			}
 		}
 		if (rows.length === 0) return null;
-		return rows[Math.floor(Math.random() * rows.length)][0] as string;
+		return rows[Math.floor(Math.random() * rows.length)].prefix;
 	}
 
 	private sampleNext(prefix: string, channelId?: string): string | null {
-		let rows: unknown[][];
+		let rows: { suffix: string; count: number }[];
 		if (channelId) {
-			rows =
-				this.db!.exec(
-					"SELECT suffix, count FROM transitions WHERE prefix = ? AND channel_id = ?",
-					[prefix, channelId],
-				)[0]?.values ?? [];
+			rows = this.stmtSampleChannel!.all(prefix, channelId);
 		} else {
-			rows =
-				this.db!.exec(
-					"SELECT suffix, SUM(count) as total FROM transitions WHERE prefix = ? GROUP BY suffix",
-					[prefix],
-				)[0]?.values ?? [];
+			rows = this.stmtSampleAll!.all(prefix);
 		}
-
 		if (rows.length === 0) return null;
 
-		const total = rows.reduce((sum, r) => sum + (r[1] as number), 0);
+		const total = rows.reduce((sum, r) => sum + r.count, 0);
 		let roll = Math.random() * total;
-		for (const [suffix, count] of rows) {
-			roll -= count as number;
-			if (roll <= 0) return suffix as string;
+		for (const row of rows) {
+			roll -= row.count;
+			if (roll <= 0) return row.suffix;
 		}
-		return rows[rows.length - 1][0] as string;
+		return rows[rows.length - 1].suffix;
 	}
 
 	private tokenize(text: string): string[] {
@@ -229,29 +222,5 @@ export class MarkovChain {
 			.replace(/[^\w\s'àáâãäåæçèéêëìíîïðñòóôõöøùúûüýþßœ]/gi, " ")
 			.split(/\s+/)
 			.filter(Boolean);
-	}
-
-	save() {
-		if (!this.db) return;
-		try {
-			this.db.exec("VACUUM");
-			const data = this.db.export();
-			const tmpPath = this.savePath + ".tmp";
-			writeFileSync(tmpPath, Buffer.from(data));
-			renameSync(tmpPath, this.savePath);
-			this.stmtInsertStarter?.free();
-			this.stmtUpsertTransition?.free();
-			this.stmtInsertStarter = this.db.prepare(
-				"INSERT OR IGNORE INTO starters (prefix, channel_id) VALUES (?, ?)",
-			);
-			this.stmtUpsertTransition = this.db.prepare(
-				`INSERT INTO transitions (prefix, suffix, count, channel_id)
-				 VALUES (?, ?, 1, ?)
-				 ON CONFLICT(prefix, suffix, channel_id)
-				 DO UPDATE SET count = count + 1`,
-			);
-		} catch (err) {
-			console.error("[Ruby] save failed:", err);
-		}
 	}
 }
