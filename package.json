@@ -9,7 +9,8 @@
     "download-chain": "node tools/download-chain.cjs",
     "download-chain:order2": "node tools/download-chain.cjs 2",
     "download-chain:order3": "node tools/download-chain.cjs 3",
-    "download-chain:order4": "node tools/download-chain.cjs 4"
+    "download-chain:order4": "node tools/download-chain.cjs 4",
+"generate": "node tools/generate.cjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
