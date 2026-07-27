@@ -82,11 +82,19 @@ async function getChannels(
 	return data as { id: string; name: string; type: number }[];
 }
 
+type DiscordMessage = {
+	id: string;
+	content: string;
+	type: number;
+	author: { id: string; username: string; bot?: boolean };
+	timestamp: string;
+};
+
 async function fetchMessages(
 	token: string,
 	channelId: string,
 	before?: string,
-): Promise<{ id: string; content: string; author: { id: string; username: string }; timestamp: string }[]> {
+): Promise<DiscordMessage[]> {
 	let path = `/channels/${channelId}/messages?limit=100`;
 	if (before) path += `&before=${before}`;
 	const { data } = await discordFetch(token, path);
@@ -142,6 +150,8 @@ async function backfillChannel(
 		emptyRuns = 0;
 
 		for (const msg of messages) {
+			if (msg.type !== 0) continue; // skip system messages
+			if (msg.author?.bot) continue;
 			if (!msg.content || msg.content.startsWith("-")) continue;
 			await trainRuby(msg.content, channelId, msg.author.id);
 			total++;
