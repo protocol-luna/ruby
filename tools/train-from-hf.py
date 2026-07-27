@@ -20,7 +20,7 @@ import requests
 RUBY_URL = "http://127.0.0.1:3127"
 MESSAGES_PATH = "hf-data/messages.txt.gz"
 CHECKPOINT_PATH = "hf-data/train-checkpoint.txt"
-BATCH_SIZE = 5000
+BATCH_SIZE = 20000
 
 
 def load_checkpoint() -> int:

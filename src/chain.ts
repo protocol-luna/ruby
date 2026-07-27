@@ -19,6 +19,8 @@ export class MarkovChain {
 	private db: SqlJsDatabase | null = null;
 	private savePath = "chain.db";
 	private trainedSinceSave = 0;
+	private stmtInsertStarter: any = null;
+	private stmtUpsertTransition: any = null;
 
 	async init(savePath?: string) {
 		this.savePath = savePath ?? "chain.db";
@@ -54,6 +56,16 @@ export class MarkovChain {
 		this.db.run(`
 			CREATE INDEX IF NOT EXISTS idx_trans_prefix ON transitions(prefix)
 		`);
+
+		this.stmtInsertStarter = this.db.prepare(
+			"INSERT OR IGNORE INTO starters (prefix, channel_id) VALUES (?, ?)",
+		);
+		this.stmtUpsertTransition = this.db.prepare(
+			`INSERT INTO transitions (prefix, suffix, count, channel_id)
+			 VALUES (?, ?, 1, ?)
+			 ON CONFLICT(prefix, suffix, channel_id)
+			 DO UPDATE SET count = count + 1`,
+		);
 
 		const stats = this.getStats();
 		console.log(
@@ -100,21 +112,16 @@ export class MarkovChain {
 	private insertWords(words: string[], channelId: string) {
 		const prefix = words.slice(0, 2).join("\x00");
 
-		this.db!.run(
-			"INSERT OR IGNORE INTO starters (prefix, channel_id) VALUES (?, ?)",
-			[prefix, channelId],
-		);
+		this.stmtInsertStarter.bind([prefix, channelId]);
+		this.stmtInsertStarter.step();
+		this.stmtInsertStarter.reset();
 
 		for (let i = 0; i < words.length - 2; i++) {
 			const key = words.slice(i, i + 2).join("\x00");
 			const next = words[i + 2];
-			this.db!.run(
-				`INSERT INTO transitions (prefix, suffix, count, channel_id)
-				 VALUES (?, ?, 1, ?)
-				 ON CONFLICT(prefix, suffix, channel_id)
-				 DO UPDATE SET count = count + 1`,
-				[key, next, channelId],
-			);
+			this.stmtUpsertTransition.bind([key, next, channelId]);
+			this.stmtUpsertTransition.step();
+			this.stmtUpsertTransition.reset();
 		}
 		this.trainedSinceSave += words.length - 2;
 	}
@@ -230,6 +237,17 @@ export class MarkovChain {
 			const tmpPath = this.savePath + ".tmp";
 			writeFileSync(tmpPath, Buffer.from(data));
 			renameSync(tmpPath, this.savePath);
+			this.stmtInsertStarter?.free();
+			this.stmtUpsertTransition?.free();
+			this.stmtInsertStarter = this.db.prepare(
+				"INSERT OR IGNORE INTO starters (prefix, channel_id) VALUES (?, ?)",
+			);
+			this.stmtUpsertTransition = this.db.prepare(
+				`INSERT INTO transitions (prefix, suffix, count, channel_id)
+				 VALUES (?, ?, 1, ?)
+				 ON CONFLICT(prefix, suffix, channel_id)
+				 DO UPDATE SET count = count + 1`,
+			);
 		} catch (err) {
 			console.error("[Ruby] save failed:", err);
 		}
