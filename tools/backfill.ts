@@ -37,7 +37,7 @@ async function discordFetch(
 	path: string,
 	retries = 3,
 ): Promise<{ data: unknown; headers: Headers }> {
-	await new Promise((r) => setTimeout(r, 220));
+	await new Promise((r) => setTimeout(r, 1100));
 
 	const resp = await fetch(`https://discord.com/api/v10${path}`, {
 		headers: { Authorization: `Bot ${token}` },
@@ -126,21 +126,15 @@ async function backfillChannel(
 	const key = channelId;
 	let before = checkpoint[key] ?? undefined;
 	let total = 0;
-	let batch = 0;
-	let emptyRuns = 0;
+	let pages = 0;
 
-	while (emptyRuns < 3) {
+	while (true) {
 		const messages = await fetchMessages(token, channelId, before);
-		if (messages.length === 0) {
-			emptyRuns++;
-			if (emptyRuns >= 3) break;
-			await new Promise((r) => setTimeout(r, 1000));
-			continue;
-		}
-		emptyRuns = 0;
+		if (messages.length === 0) break;
+		pages++;
 
 		for (const msg of messages) {
-			if (msg.type !== 0) continue; // skip system messages
+			if (msg.type !== 0) continue;
 			if (msg.author?.bot) continue;
 			if (!msg.content || msg.content.startsWith("-")) continue;
 			await trainRuby(msg.content, channelId, msg.author.id);
@@ -149,14 +143,13 @@ async function backfillChannel(
 			checkpoint[key] = msg.id;
 		}
 
-		batch++;
-		if (batch % 10 === 0) {
+		if (pages % 10 === 0) {
 			saveCheckpoint(checkpoint);
 			console.log(`  [${channelName}] ${total} messages...`);
 		}
 	}
 
-	console.log(`  [${channelName}] done: ${total} messages`);
+	if (total > 0) console.log(`  [${channelName}] done: ${total} messages`);
 }
 
 async function main() {
