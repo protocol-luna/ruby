@@ -29,6 +29,7 @@ beforeEach(async () => {
 	server.start();
 	const port = await waitForServer(server);
 	baseUrl = `http://127.0.0.1:${port}`;
+	console.log = () => {}; // suppress logs during tests
 });
 
 afterEach(() => {
