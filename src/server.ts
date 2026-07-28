@@ -1,4 +1,8 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+	createServer,
+	type IncomingMessage,
+	type ServerResponse,
+} from "node:http";
 import { MarkovChain } from "./chain";
 import type { RubyConfig } from "./config";
 
@@ -16,7 +20,9 @@ export class RubyServer {
 	start() {
 		this.chain.init(this.config.db_path, this.config.order);
 		this.server.listen(this.config.port, this.config.host, () => {
-			console.log(`[Ruby] listening on ${this.config.host}:${this.config.port}`);
+			console.log(
+				`[Ruby] listening on ${this.config.host}:${this.config.port}`,
+			);
 		});
 	}
 
@@ -80,7 +86,10 @@ export class RubyServer {
 		}
 
 		const batch = messages
-			.filter((m: Record<string, unknown>) => typeof m.text === "string" && (m.text as string).trim())
+			.filter(
+				(m: Record<string, unknown>) =>
+					typeof m.text === "string" && (m.text as string).trim(),
+			)
 			.map((m: Record<string, unknown>) => ({
 				text: m.text as string,
 				isDM: (m as { isDM?: boolean }).isDM ?? false,

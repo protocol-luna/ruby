@@ -21,20 +21,37 @@ export class MarkovChain {
 	private order = 2;
 	private trainedSinceSave = 0;
 	private stmtInsertStarter: Database.Statement<[string, string]> | null = null;
-	private stmtUpsertTransition: Database.Statement<[string, string, string]> | null = null;
+	private stmtUpsertTransition: Database.Statement<
+		[string, string, string]
+	> | null = null;
 	private stmtPickAll: Database.Statement<[], { prefix: string }> | null = null;
-	private stmtPickChannel: Database.Statement<[string], { prefix: string }> | null = null;
-	private stmtPickSeed: Database.Statement<[string], { prefix: string }> | null = null;
-	private stmtPickSeedChannel: Database.Statement<[string, string], { prefix: string }> | null = null;
-	private stmtSampleAll: Database.Statement<[string], { suffix: string; count: number }> | null = null;
-	private stmtSampleChannel: Database.Statement<[string, string], { suffix: string; count: number }> | null = null;
+	private stmtPickChannel: Database.Statement<
+		[string],
+		{ prefix: string }
+	> | null = null;
+	private stmtPickSeed: Database.Statement<
+		[string],
+		{ prefix: string }
+	> | null = null;
+	private stmtPickSeedChannel: Database.Statement<
+		[string, string],
+		{ prefix: string }
+	> | null = null;
+	private stmtSampleAll: Database.Statement<
+		[string],
+		{ suffix: string; count: number }
+	> | null = null;
+	private stmtSampleChannel: Database.Statement<
+		[string, string],
+		{ suffix: string; count: number }
+	> | null = null;
 
 	init(savePath?: string, order?: number) {
 		this.order = order ?? 2;
 		this.savePath = savePath ?? "chain.db";
 
-		if (existsSync(this.savePath + ".tmp")) {
-			renameSync(this.savePath + ".tmp", this.savePath);
+		if (existsSync(`${this.savePath}.tmp`)) {
+			renameSync(`${this.savePath}.tmp`, this.savePath);
 		}
 
 		this.db = new Database(this.savePath);
@@ -88,7 +105,10 @@ export class MarkovChain {
 		) as Database.Statement<[string], { suffix: string; count: number }>;
 		this.stmtSampleChannel = this.db.prepare(
 			"SELECT suffix, count FROM transitions WHERE prefix = ? AND channel_id = ?",
-		) as Database.Statement<[string, string], { suffix: string; count: number }>;
+		) as Database.Statement<
+			[string, string],
+			{ suffix: string; count: number }
+		>;
 
 		const stats = this.getStats();
 		console.log(
@@ -108,6 +128,7 @@ export class MarkovChain {
 	}
 
 	trainMany(optsList: TrainOptions[]) {
+		// biome-ignore lint/style/noNonNullAssertion: called after init()
 		const insertBatch = this.db!.transaction((items: TrainOptions[]) => {
 			for (const opts of items) {
 				if (opts.isDM) continue;
@@ -121,6 +142,7 @@ export class MarkovChain {
 
 	maybeVacuum() {
 		if (this.trainedSinceSave > 500000) {
+			// biome-ignore lint/style/noNonNullAssertion: called after init()
 			this.db!.exec("VACUUM");
 			this.trainedSinceSave = 0;
 		}
@@ -129,11 +151,13 @@ export class MarkovChain {
 	private insertWords(words: string[], channelId: string) {
 		const prefix = words.slice(0, this.order).join("\x00");
 
+		// biome-ignore lint/style/noNonNullAssertion: called after init()
 		this.stmtInsertStarter!.run(prefix, channelId);
 
 		for (let i = 0; i < words.length - this.order; i++) {
 			const key = words.slice(i, i + this.order).join("\x00");
 			const next = words[i + this.order];
+			// biome-ignore lint/style/noNonNullAssertion: called after init()
 			this.stmtUpsertTransition!.run(key, next, channelId);
 		}
 		this.trainedSinceSave += words.length - this.order;
@@ -150,7 +174,10 @@ export class MarkovChain {
 		const result: string[] = [...parts];
 
 		for (let i = 0; i < maxLength; i++) {
-			const next = this.sampleNext(parts.slice(-this.order).join("\x00"), channelId);
+			const next = this.sampleNext(
+				parts.slice(-this.order).join("\x00"),
+				channelId,
+			);
 			if (!next) break;
 			result.push(next);
 			parts.push(next);
@@ -161,8 +188,14 @@ export class MarkovChain {
 	}
 
 	getStats() {
-		const tRow = this.db!.prepare("SELECT COUNT(*) as c FROM transitions").get() as { c: number };
-		const sRow = this.db!.prepare("SELECT COUNT(*) as c FROM starters").get() as { c: number };
+		// biome-ignore lint/style/noNonNullAssertion: called after init()
+		const tRow = this.db!.prepare(
+			"SELECT COUNT(*) as c FROM transitions",
+		).get() as { c: number };
+		// biome-ignore lint/style/noNonNullAssertion: called after init()
+		const sRow = this.db!.prepare(
+			"SELECT COUNT(*) as c FROM starters",
+		).get() as { c: number };
 		return {
 			transitions: tRow?.c ?? 0,
 			starts: sRow?.c ?? 0,
@@ -170,6 +203,7 @@ export class MarkovChain {
 	}
 
 	getChannels(): string[] {
+		// biome-ignore lint/style/noNonNullAssertion: called after init()
 		const rows = this.db!.prepare(
 			"SELECT DISTINCT channel_id FROM transitions WHERE channel_id != '' ORDER BY channel_id",
 		).all() as { channel_id: string }[];
@@ -180,16 +214,28 @@ export class MarkovChain {
 		if (seed) {
 			const target = seed.toLowerCase().split(/\s+/).join("\x00");
 			const firstWord = target.split("\x00")[0];
-			const rows = channelId
-				? this.stmtPickSeedChannel!.all(firstWord + "%", channelId)
-				: this.stmtPickSeed!.all(firstWord + "%");
-			const matched = rows.filter((r) => r.prefix.toLowerCase().startsWith(target));
+			let rows: { prefix: string }[];
+			if (channelId) {
+				// biome-ignore lint/style/noNonNullAssertion: called after init()
+				rows = this.stmtPickSeedChannel!.all(`${firstWord}%`, channelId);
+			} else {
+				// biome-ignore lint/style/noNonNullAssertion: called after init()
+				rows = this.stmtPickSeed!.all(`${firstWord}%`);
+			}
+			const matched = rows.filter((r) =>
+				r.prefix.toLowerCase().startsWith(target),
+			);
 			if (matched.length === 0) return null;
 			return matched[Math.floor(Math.random() * matched.length)].prefix;
 		}
-		const rows = channelId
-			? this.stmtPickChannel!.all(channelId)
-			: this.stmtPickAll!.all();
+		let rows: { prefix: string }[];
+		if (channelId) {
+			// biome-ignore lint/style/noNonNullAssertion: called after init()
+			rows = this.stmtPickChannel!.all(channelId);
+		} else {
+			// biome-ignore lint/style/noNonNullAssertion: called after init()
+			rows = this.stmtPickAll!.all();
+		}
 		if (rows.length === 0) return null;
 		return rows[Math.floor(Math.random() * rows.length)].prefix;
 	}
@@ -197,8 +243,10 @@ export class MarkovChain {
 	private sampleNext(prefix: string, channelId?: string): string | null {
 		let rows: { suffix: string; count: number }[];
 		if (channelId) {
+			// biome-ignore lint/style/noNonNullAssertion: called after init()
 			rows = this.stmtSampleChannel!.all(prefix, channelId);
 		} else {
+			// biome-ignore lint/style/noNonNullAssertion: called after init()
 			rows = this.stmtSampleAll!.all(prefix);
 		}
 		if (rows.length === 0) return null;
