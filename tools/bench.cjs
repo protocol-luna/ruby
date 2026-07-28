@@ -1,17 +1,15 @@
 const Database = require('better-sqlite3');
 const path = require('path');
-const fs = require('fs');
 
 const ORDER = 4;
 const SEP = '\x00';
-const TMP_DB = path.join(__dirname, '..', 'bench-tmp.db');
-const SRC_DB = path.join(__dirname, '..', 'chain.db');
+const DB = path.join(__dirname, '..', 'chain.db');
 
-// Copy chain.db to temp to avoid corrupting the real one
-fs.copyFileSync(SRC_DB, TMP_DB);
-const db = new Database(TMP_DB);
+const db = new Database(DB, { readonly: true });
 db.pragma('journal_mode = WAL');
-db.pragma('synchronous = OFF');
+
+// In-memory counters for dry-run training
+const memTransitions = new Map();
 
 function tokenize(text) {
   return text
@@ -26,21 +24,20 @@ function tokenize(text) {
 function train(text, channelId = '') {
   const words = tokenize(text);
   if (words.length < ORDER + 1) return false;
-  stmtInsertStarter.run(words.slice(0, ORDER).join(SEP), channelId);
   for (let i = 0; i < words.length - ORDER; i++) {
-    stmtUpsertTransition.run(words.slice(i, i + ORDER).join(SEP), words[i + ORDER], channelId);
+    const prefix = words.slice(i, i + ORDER).join(SEP);
+    const suffix = words[i + ORDER];
+    const key = prefix + SEP + suffix + SEP + channelId;
+    memTransitions.set(key, (memTransitions.get(key) || 0) + 1);
   }
   return true;
 }
 
-// Preload all starters into a JS array (avoids ORDER BY RANDOM() on 1.1M rows)
 const allStarters = db.prepare('SELECT prefix FROM starters WHERE channel_id = ?').all('');
 const starterList = allStarters.map(r => r.prefix);
 console.log(`Loaded ${starterList.length} starters`);
 
 const stmtGetSuffixes = db.prepare('SELECT suffix, count FROM transitions WHERE prefix = ? AND channel_id = ?');
-const stmtInsertStarter = db.prepare('INSERT OR IGNORE INTO starters (prefix, channel_id) VALUES (?, ?)');
-const stmtUpsertTransition = db.prepare('INSERT INTO transitions (prefix, suffix, count, channel_id) VALUES (?, ?, 1, ?) ON CONFLICT(prefix, suffix, channel_id) DO UPDATE SET count = count + 1');
 
 function generate(maxLen = 30) {
   if (starterList.length === 0) return null;
@@ -75,25 +72,22 @@ const sampleMsgs = [
   'have you seen the latest episode yet',
 ];
 
-const TRANSACTIONS = db.transaction((msgs) => {
-  for (const m of msgs) train(m);
-});
-
 // Warmup
-for (let i = 0; i < 100; i++) TRANSACTIONS(sampleMsgs);
+for (let i = 0; i < 1000; i++) train(sampleMsgs[i % sampleMsgs.length]);
+memTransitions.clear();
 for (let i = 0; i < 10; i++) generate();
 
-// Benchmark training
-const TRAIN_N = 200000;
+// Benchmark training (dry — no DB writes)
+const TRAIN_N = 500000;
 const batch = [];
 for (let i = 0; i < TRAIN_N; i++) {
   batch.push(sampleMsgs[i % sampleMsgs.length] + ' ' + i);
 }
 const t0 = process.hrtime.bigint();
-TRANSACTIONS(batch);
+for (const m of batch) train(m);
 const t1 = process.hrtime.bigint();
 const trainMs = Number(t1 - t0) / 1e6;
-console.log(`Training:`);
+console.log(`Training (dry, no DB writes):`);
 console.log(`  ${Math.round(TRAIN_N / (trainMs / 1000))} msgs/s`);
 console.log(`  ${TRAIN_N} msgs in ${Math.round(trainMs)} ms`);
 
@@ -116,8 +110,4 @@ console.log(`  ${Math.round(GEN_N / (genMs / 1000))} gen/s`);
 console.log(`  ${GEN_N} gens in ${Math.round(genMs)} ms`);
 console.log(`  avg ${Math.round((totalWords / count) * 10) / 10} words (${count} successful)`);
 
-const fileSize = fs.statSync(TMP_DB).size;
-console.log(`DB size: ${(fileSize / 1024 / 1024).toFixed(0)} MB`);
-
 db.close();
-fs.unlinkSync(TMP_DB);
