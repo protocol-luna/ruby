@@ -21,7 +21,7 @@
   </p>
 </p>
 
-Ruby generates spontaneous, context-free messages by recombining real messages from Discord and Matrix channels — no LLM inference needed. It's an order-4 Markov chain stored in SQLite.
+Ruby generates spontaneous, context-free messages by recombining real messages from Discord and Matrix channels -- no LLM inference needed. It's an order-4 Markov chain stored in SQLite.
 
 Pre-trained chains (orders 2, 3, 4) are available on [HuggingFace](https://huggingface.co/fox3000foxy/ruby-chain), trained on 16.9M real Discord messages.
 
@@ -35,14 +35,14 @@ flowchart LR
 
 1. Every message that flows through Emerald is forwarded to Ruby's `/train` endpoint (fire-and-forget)
 2. Ruby tokenizes and builds an order-4 Markov chain in SQLite: each 4-word prefix maps to possible next words
-3. Messages are tagged with `channel_id` — the chain can be filtered by source channel or topic
+3. Messages are tagged with `channel_id` -- the chain can be filtered by source channel or topic
 4. When Emerald decides to be spontaneous (or triggers a `random`/`spontaneous` response), it calls Ruby's `/generate`
 5. Ruby samples the chain with weighted random selection and returns a sentence
 6. Emerald applies the same behavior pipeline as any response (delay, hesitation, burst, typos)
 
 ## Technical Overview
 
-Ruby is **~400 lines of TypeScript** across 4 source files. It uses **better-sqlite3** (native SQLite binding) for persistence and Node.js built-in `http` module for the server — no external HTTP framework.
+Ruby is **~400 lines of TypeScript** across 4 source files. It uses **better-sqlite3** (native SQLite binding) for persistence and Node.js built-in `http` module for the server -- no external HTTP framework.
 
 ### Source Map
 
@@ -101,7 +101,7 @@ CREATE INDEX idx_trans_prefix ON transitions(prefix);
    - Append suffix to result, slide window
 4. Return joined words
 
-**Persistence:** better-sqlite3 writes directly to disk (WAL mode). No periodic save needed — every `train()` call is immediately durable. A `VACUUM` runs every 500K transitions to reclaim space.
+**Persistence:** better-sqlite3 writes directly to disk (WAL mode). No periodic save needed -- every `train()` call is immediately durable. A `VACUUM` runs every 500K transitions to reclaim space.
 
 ### API Endpoints
 
@@ -204,7 +204,7 @@ python tools/prepare.py
 node tools/train-multi.js
 ```
 
-Downloads and processes `mookiezi/Discord-Dialogues` dataset directly with better-sqlite3 — no HTTP overhead.
+Downloads and processes `mookiezi/Discord-Dialogues` dataset directly with better-sqlite3 -- no HTTP overhead.
 
 ## Command-line Tools
 
@@ -231,7 +231,7 @@ Generates a sentence from the command line. Optional seed: if the seed matches a
 
 ### `trace.cjs`
 
-Shows each step of a generated sentence — for each word, what prefix generated it, the chosen suffix, and all other available options with their counts. Useful for understanding why the chain made a particular choice.
+Shows each step of a generated sentence -- for each word, what prefix generated it, the chosen suffix, and all other available options with their counts. Useful for understanding why the chain made a particular choice.
 
 ### `reverse.cjs`
 

@@ -77,7 +77,7 @@ for (let i = 0; i < 1000; i++) train(sampleMsgs[i % sampleMsgs.length]);
 memTransitions.clear();
 for (let i = 0; i < 10; i++) generate();
 
-// Benchmark training (dry — no DB writes)
+// Benchmark training (dry -- no DB writes)
 const TRAIN_N = 500000;
 const batch = [];
 for (let i = 0; i < TRAIN_N; i++) {
