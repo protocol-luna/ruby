@@ -10,7 +10,10 @@
     "download-chain:order2": "node tools/download-chain.cjs 2",
     "download-chain:order3": "node tools/download-chain.cjs 3",
     "download-chain:order4": "node tools/download-chain.cjs 4",
-"generate": "node tools/generate.cjs"
+"generate": "node tools/generate.cjs",
+    "test": "tsx --test tests/chain.test.ts tests/server.test.ts",
+    "test:chain": "tsx --test tests/chain.test.ts",
+    "test:server": "tsx --test tests/server.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
